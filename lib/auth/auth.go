@@ -785,6 +785,11 @@ func NewServer(cfg *InitConfig, opts ...ServerOption) (as *Server, err error) {
 		as.bitbucketIDTokenValidator = bitbucket.NewIDTokenValidator()
 	}
 
+	// Initialize OIDC authentication service
+	if as.oidcAuthService == nil {
+		as.SetOIDCService(NewOIDCAuthService(as))
+	}
+
 	if as.createBoundKeypairValidator == nil {
 		as.createBoundKeypairValidator = func(subject, clusterName string, publicKey crypto.PublicKey) (joinboundkeypair.BoundKeypairValidator, error) {
 			return boundkeypair.NewChallengeValidator(subject, clusterName, publicKey)
