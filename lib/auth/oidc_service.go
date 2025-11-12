@@ -114,6 +114,8 @@ func (s *oidcAuthServiceImpl) createOIDCAuthRequest(ctx context.Context, req typ
 		CreateWebSession:  req.CreateWebSession,
 		ProxyAddress:      req.ProxyAddress,
 		PkceVerifier:      req.PkceVerifier,
+		SshPublicKey:      req.SshPublicKey,
+		TlsPublicKey:      req.TlsPublicKey,
 	}
 
 	// Store the request in cache/storage for later validation
@@ -147,7 +149,9 @@ func (s *oidcAuthServiceImpl) ValidateOIDCAuthCallback(ctx context.Context, q ur
 	s.authServer.logger.InfoContext(ctx, "Retrieved auth request",
 		"connector_id", authRequest.ConnectorID,
 		"proxy_address", authRequest.ProxyAddress,
-		"create_web_session", authRequest.CreateWebSession)
+		"create_web_session", authRequest.CreateWebSession,
+		"ssh_pub_key_len", len(authRequest.SshPublicKey),
+		"tls_pub_key_len", len(authRequest.TlsPublicKey))
 
 	// Get the OIDC connector
 	connector, err := s.authServer.GetOIDCConnector(ctx, authRequest.ConnectorID, true)
@@ -271,7 +275,15 @@ func (s *oidcAuthServiceImpl) ValidateOIDCAuthCallback(ctx context.Context, q ur
 			CSRFToken:         authRequest.CSRFToken,
 			CreateWebSession:  authRequest.CreateWebSession,
 			ClientRedirectURL: authRequest.ClientRedirectURL,
+			SSHPubKey:         authRequest.SshPublicKey,
+			TLSPubKey:         authRequest.TlsPublicKey,
 		},
+	}
+
+	// Get user state for certificate generation
+	userState, err := s.authServer.GetUserOrLoginState(ctx, user.GetName())
+	if err != nil {
+		return nil, trace.Wrap(err)
 	}
 
 	// Create web session if requested
@@ -286,6 +298,48 @@ func (s *oidcAuthServiceImpl) ValidateOIDCAuthCallback(ctx context.Context, q ur
 			return nil, trace.Wrap(err)
 		}
 		response.Session = sess
+	}
+
+	// If a public key was provided, sign it and return a certificate (for CLI login)
+	if len(authRequest.SshPublicKey) != 0 || len(authRequest.TlsPublicKey) != 0 {
+		s.authServer.logger.InfoContext(ctx, "Generating certificates for console login",
+			"ssh_pub_key_len", len(authRequest.SshPublicKey),
+			"tls_pub_key_len", len(authRequest.TlsPublicKey),
+			"username", user.GetName())
+
+		sshCert, tlsCert, err := s.authServer.CreateSessionCerts(ctx, &SessionCertsRequest{
+			UserState:  userState,
+			SessionTTL: authRequest.CertTTL,
+			SSHPubKey:  authRequest.SshPublicKey,
+			TLSPubKey:  authRequest.TlsPublicKey,
+		})
+		if err != nil {
+			return nil, trace.Wrap(err, "failed to create session certificates")
+		}
+
+		clusterName, err := s.authServer.GetClusterName(ctx)
+		if err != nil {
+			return nil, trace.Wrap(err, "failed to obtain cluster name")
+		}
+
+		response.Cert = sshCert
+		response.TLSCert = tlsCert
+
+		s.authServer.logger.InfoContext(ctx, "Generated certificates",
+			"ssh_cert_len", len(sshCert),
+			"tls_cert_len", len(tlsCert))
+
+		// Return the host CA for this cluster only
+		authority, err := s.authServer.GetCertAuthority(ctx, types.CertAuthID{
+			Type:       types.HostCA,
+			DomainName: clusterName.GetClusterName(),
+		}, false)
+		if err != nil {
+			return nil, trace.Wrap(err, "failed to obtain cluster's host CA")
+		}
+		response.HostSigners = append(response.HostSigners, authority)
+	} else {
+		s.authServer.logger.InfoContext(ctx, "Skipping certificate generation - no public keys provided")
 	}
 
 	// Clean up stored auth request

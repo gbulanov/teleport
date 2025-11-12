@@ -74,12 +74,20 @@ func (h *Handler) oidcLoginConsole(w http.ResponseWriter, r *http.Request, p htt
 		return nil, trace.AccessDenied("%s", SSOLoginFailureMessage)
 	}
 
+	logger.DebugContext(r.Context(), "Creating OIDC auth request",
+		"connector_id", req.ConnectorID,
+		"ssh_pub_key_len", len(req.SSHPubKey),
+		"tls_pub_key_len", len(req.TLSPubKey),
+		"cert_ttl", req.CertTTL)
+
 	response, err := h.cfg.ProxyClient.CreateOIDCAuthRequest(r.Context(), types.OIDCAuthRequest{
 		ConnectorID:       req.ConnectorID,
 		ClientRedirectURL: req.RedirectURL,
 		CertTTL:           req.CertTTL,
 		ProxyAddress:      h.cfg.ProxyPublicAddrs[0].String(),
 		PkceVerifier:      req.PKCEVerifier,
+		SshPublicKey:      req.SSHPubKey,
+		TlsPublicKey:      req.TLSPubKey,
 	})
 	if err != nil {
 		logger.ErrorContext(r.Context(), "Failed to create OIDC auth request", "error", err)
@@ -151,9 +159,14 @@ func (h *Handler) oidcCallback(w http.ResponseWriter, r *http.Request, p httprou
 		return res.ClientRedirectURL
 	}
 
-	logger.InfoContext(r.Context(), "Callback is redirecting to console login")
+	logger.InfoContext(r.Context(), "Callback is redirecting to console login",
+		"ssh_pub_key_len", len(response.Req.SSHPubKey),
+		"tls_pub_key_len", len(response.Req.TLSPubKey))
+
 	if len(response.Req.SSHPubKey)+len(response.Req.TLSPubKey) == 0 {
-		logger.ErrorContext(r.Context(), "Not a web or console login request")
+		logger.ErrorContext(r.Context(), "Not a web or console login request - missing public keys",
+			"ssh_pub_key_len", len(response.Req.SSHPubKey),
+			"tls_pub_key_len", len(response.Req.TLSPubKey))
 		return client.LoginFailedRedirectURL
 	}
 
