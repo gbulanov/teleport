@@ -331,7 +331,7 @@ func newWebSuiteWithConfig(t *testing.T, cfg webSuiteConfig) *WebSuite {
 			Role:         types.RoleNode,
 			PublicSSHKey: pub,
 			PublicTLSKey: tlsPub,
-		})
+		}, "")
 	require.NoError(t, err)
 
 	signer, err := sshutils.NewSigner(priv, certs.SSH)
@@ -641,7 +641,7 @@ func (s *WebSuite) addNode(t *testing.T, uuid string, hostname string, address s
 			Role:         types.RoleNode,
 			PublicSSHKey: pub,
 			PublicTLSKey: tlsPub,
-		})
+		}, "")
 	require.NoError(t, err)
 
 	signer, err := sshutils.NewSigner(priv, certs.SSH)
@@ -4783,6 +4783,7 @@ func TestGetWebConfig_WithEntitlements(t *testing.T) {
 			string(entitlements.LicenseAutoUpdate):          {Enabled: false},
 			string(entitlements.AccessGraphDemoMode):        {Enabled: false},
 			string(entitlements.UnrestrictedManagedUpdates): {Enabled: false},
+			string(entitlements.ClientIPRestrictions):       {Enabled: false},
 		},
 		TunnelPublicAddress:            "",
 		RecoveryCodesEnabled:           false,
@@ -4967,6 +4968,7 @@ func TestGetWebConfig_LegacyFeatureLimits(t *testing.T) {
 			string(entitlements.LicenseAutoUpdate):          {Enabled: false},
 			string(entitlements.AccessGraphDemoMode):        {Enabled: false},
 			string(entitlements.UnrestrictedManagedUpdates): {Enabled: false},
+			string(entitlements.ClientIPRestrictions):       {Enabled: false},
 		},
 		PlayableDatabaseProtocols:     player.SupportedDatabaseProtocols,
 		IsPolicyRoleVisualizerEnabled: true,
@@ -6817,7 +6819,7 @@ func TestDiagnoseSSHConnection(t *testing.T) {
 					Type:    types.ConnectionDiagnosticTrace_CONNECTIVITY,
 					Status:  types.ConnectionDiagnosticTrace_FAILED,
 					Details: `Failed to connect to the Node. Ensure teleport service is running using "systemctl status teleport".`,
-					Error:   "direct dialing to nodes not found in inventory is not supported",
+					Error:   "target host notanode is offline or does not exist",
 				},
 			},
 		},
@@ -6835,7 +6837,7 @@ func TestDiagnoseSSHConnection(t *testing.T) {
 					Type:    types.ConnectionDiagnosticTrace_CONNECTIVITY,
 					Status:  types.ConnectionDiagnosticTrace_FAILED,
 					Details: `Failed to connect to the Node. Ensure teleport service is running using "launchctl print 'system/Teleport Service'".`,
-					Error:   "direct dialing to nodes not found in inventory is not supported",
+					Error:   "target host notanode is offline or does not exist",
 				},
 			},
 		},
@@ -6854,7 +6856,7 @@ func TestDiagnoseSSHConnection(t *testing.T) {
 					Type:    types.ConnectionDiagnosticTrace_CONNECTIVITY,
 					Status:  types.ConnectionDiagnosticTrace_FAILED,
 					Details: `Open the Connect My Computer tab in Teleport Connect and make sure that the agent is running.`,
-					Error:   "direct dialing to nodes not found in inventory is not supported",
+					Error:   "target host notanode is offline or does not exist",
 				},
 			},
 		},
@@ -8326,7 +8328,7 @@ func newWebPack(t *testing.T, numProxies int, opts ...webPackOptions) *webPack {
 			Role:         types.RoleNode,
 			PublicSSHKey: pub,
 			PublicTLSKey: tlsPub,
-		})
+		}, "")
 	require.NoError(t, err)
 
 	signer, err := sshutils.NewSigner(priv, certs.SSH)
@@ -11151,6 +11153,7 @@ func Test_setEntitlementsWithLegacyLogic(t *testing.T) {
 					string(entitlements.LicenseAutoUpdate):          {Enabled: true, Limit: 99},
 					string(entitlements.AccessGraphDemoMode):        {Enabled: true, Limit: 99},
 					string(entitlements.UnrestrictedManagedUpdates): {Enabled: true, Limit: 99},
+					string(entitlements.ClientIPRestrictions):       {Enabled: true, Limit: 99},
 				},
 			},
 			expected: &webclient.WebConfig{
@@ -11215,6 +11218,7 @@ func Test_setEntitlementsWithLegacyLogic(t *testing.T) {
 					string(entitlements.LicenseAutoUpdate):          {Enabled: true, Limit: 99},
 					string(entitlements.AccessGraphDemoMode):        {Enabled: true, Limit: 99},
 					string(entitlements.UnrestrictedManagedUpdates): {Enabled: true, Limit: 99},
+					string(entitlements.ClientIPRestrictions):       {Enabled: true, Limit: 99},
 				},
 			},
 		},
@@ -11318,6 +11322,7 @@ func Test_setEntitlementsWithLegacyLogic(t *testing.T) {
 					string(entitlements.LicenseAutoUpdate):          {Enabled: false},
 					string(entitlements.AccessGraphDemoMode):        {Enabled: false},
 					string(entitlements.UnrestrictedManagedUpdates): {Enabled: false},
+					string(entitlements.ClientIPRestrictions):       {Enabled: false},
 
 					// set to equivalent legacy feature
 					string(entitlements.ExternalAuditStorage):   {Enabled: true},
@@ -11448,6 +11453,8 @@ func Test_setEntitlementsWithLegacyLogic(t *testing.T) {
 					string(entitlements.SAML):                       {Enabled: true},
 					string(entitlements.AccessGraphDemoMode):        {Enabled: false},
 					string(entitlements.UnrestrictedManagedUpdates): {Enabled: false},
+					string(entitlements.ClientIPRestrictions):       {Enabled: false},
+
 					// set to legacy feature "IsIGSEnabled"; false so set value and keep limits
 					string(entitlements.AccessLists):       {Enabled: true, Limit: 88},
 					string(entitlements.AccessMonitoring):  {Enabled: true, Limit: 88},
@@ -11559,6 +11566,7 @@ func Test_setEntitlementsWithLegacyLogic(t *testing.T) {
 					string(entitlements.LicenseAutoUpdate):          {Enabled: false},
 					string(entitlements.AccessGraphDemoMode):        {Enabled: false},
 					string(entitlements.UnrestrictedManagedUpdates): {Enabled: false},
+					string(entitlements.ClientIPRestrictions):       {Enabled: false},
 				},
 			},
 		},

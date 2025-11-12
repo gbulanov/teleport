@@ -54,6 +54,7 @@ import (
 	"github.com/gravitational/teleport/lib/services/local"
 	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/teleport/lib/utils/interval"
+	logutils "github.com/gravitational/teleport/lib/utils/log"
 )
 
 var (
@@ -257,7 +258,6 @@ func ForProxy(cfg Config) Config {
 		{Kind: types.KindWindowsDesktop},
 		{Kind: types.KindDynamicWindowsDesktop},
 		{Kind: types.KindKubeServer},
-		{Kind: types.KindInstaller},
 		{Kind: types.KindKubernetesCluster},
 		{Kind: types.KindSAMLIdPServiceProvider},
 		{Kind: types.KindUserGroup},
@@ -1270,7 +1270,7 @@ func (c *Cache) fetchAndWatch(ctx context.Context, retry retryutils.Retry, timer
 			"duration", fetchAndApplyDuration.String(),
 		)
 	} else {
-		c.Logger.DebugContext(ctx, "fetch and apply",
+		c.Logger.Log(ctx, logutils.TraceLevel, "fetch and apply",
 			"cache_target", c.Config.target,
 			"duration", fetchAndApplyDuration.String(),
 		)

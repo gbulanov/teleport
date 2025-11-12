@@ -99,9 +99,20 @@ type BotConfig struct {
 	// If not set, no diagnostics listener is created.
 	DiagAddr string `yaml:"diag_addr,omitempty"`
 
+	// DiagSocketForUpdater specifies the path to the diagnostics http service socket that
+	// should be exposed to the updater.
+	DiagSocketForUpdater string `yaml:"-"`
+
+	// PIDFile is the path to the PID file that should be created by the bot.
+	PIDFile string `yaml:"-"`
+
 	// ReloadCh allows a channel to be injected into the bot to trigger a
 	// renewal.
 	ReloadCh <-chan struct{} `yaml:"-"`
+
+	// Testing is set in unit tests to attach a faux service which exposes the
+	// bot's underlying identity and client so we can make assertions on it.
+	Testing bool `yaml:"-"`
 
 	// Insecure configures the bot to trust the certificates from the Auth Server or Proxy on first connect without verification.
 	// Do not use in production.
@@ -565,22 +576,7 @@ func ReadConfig(reader io.ReadSeeker, manualMigration bool) (*BotConfig, error) 
 
 	switch version.Version {
 	case V1, "":
-		if !manualMigration {
-			log.WarnContext(
-				context.TODO(), "Deprecated config version (V1) detected. Attempting to perform an on-the-fly in-memory migration to latest version. Please persist the config migration using `tbot migrate`.")
-		}
-		config := &configV1{}
-		if err := decoder.Decode(config); err != nil {
-			return nil, trace.BadParameter("failed parsing config file: %s", strings.ReplaceAll(err.Error(), "\n", ""))
-		}
-		latestConfig, err := config.migrate()
-		if err != nil {
-			return nil, trace.WithUserMessage(
-				trace.Wrap(err, "migrating v1 config"),
-				"Failed to migrate. Please contact Teleport support or use https://goteleport.com/docs/reference/machine-id/configuration/ to manually migrate your configuration.",
-			)
-		}
-		return latestConfig, nil
+		return nil, trace.BadParameter("configuration version v1 is no longer supported")
 	case V2:
 		if manualMigration {
 			return nil, trace.BadParameter("configuration already the latest version. nothing to migrate.")

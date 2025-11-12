@@ -258,7 +258,9 @@ const cfg = {
     clustersPath: '/v1/webapi/sites',
     clusterInfoPath: '/v1/webapi/sites/:clusterId/info',
     clusterAlertsPath: '/v1/webapi/sites/:clusterId/alerts',
+    // TODO (avatus): Delete in v21.0.0
     clusterEventsPath: `/v1/webapi/sites/:clusterId/events/search?from=:start?&to=:end?&limit=:limit?&startKey=:startKey?&include=:include?`,
+    clusterEventsPathV2: `/v2/webapi/sites/:clusterId/events/search?from=:start?&to=:end?&limit=:limit?&startKey=:startKey?&include=:include?&search=:search?&order=:order?`,
     clusterEventsRecordingsPath: `/v1/webapi/sites/:clusterId/events/search/sessions`,
 
     connectionDiagnostic: `/v1/webapi/sites/:clusterId/diagnostics/connections`,
@@ -505,6 +507,7 @@ const cfg = {
       read: '/v1/webapi/sites/:clusterId/machine-id/bot/:botName/bot-instance/:instanceId',
       list: '/v1/webapi/sites/:clusterId/machine-id/bot-instance',
       listV2: '/v2/webapi/sites/:clusterId/machine-id/bot-instance',
+      metrics: '/v1/webapi/sites/:clusterId/machine-id/bot-instance/metrics',
     },
 
     workloadIdentity: {
@@ -583,7 +586,7 @@ const cfg = {
   },
 
   getClusterEventsUrl(clusterId: string, params: UrlClusterEventsParams) {
-    return generatePath(cfg.api.clusterEventsPath, {
+    return generatePath(cfg.api.clusterEventsPathV2, {
       clusterId,
       ...params,
     });
@@ -845,8 +848,36 @@ const cfg = {
     return generatePath(cfg.routes.bot, { botName });
   },
 
-  getBotInstancesRoute() {
-    return generatePath(cfg.routes.botInstances);
+  getBotInstancesRoute(
+    options?: Partial<{
+      query: string;
+      isAdvancedQuery: boolean;
+      sortField: string;
+      sortDir: 'ASC' | 'DESC';
+      selectedItemId: string;
+      activeTab: 'info' | 'health' | 'yaml';
+    }>
+  ) {
+    const search = new URLSearchParams(location.search);
+    if (options?.query) {
+      search.set('query', options.query);
+    }
+    if (options?.isAdvancedQuery) {
+      search.set('is_advanced', '1');
+    }
+    if (options?.sortField) {
+      search.set('sort_field', options.sortField);
+    }
+    if (options?.sortDir) {
+      search.set('sort_dir', options.sortDir);
+    }
+    if (options?.selectedItemId) {
+      search.set('selected', options.selectedItemId);
+    }
+    if (options?.activeTab) {
+      search.set('tab', options.activeTab);
+    }
+    return generatePath(`${cfg.routes.botInstances}?${search.toString()}`);
   },
 
   getWorkloadIdentitiesRoute() {
@@ -1720,6 +1751,9 @@ const cfg = {
           botName: string;
           instanceId: string;
         }
+      | {
+          action: 'metrics';
+        }
     ) & { clusterId?: string }
   ) {
     const { clusterId = cfg.proxyCluster } = req;
@@ -1737,6 +1771,10 @@ const cfg = {
           clusterId,
           botName: req.botName,
           instanceId: req.instanceId,
+        });
+      case 'metrics':
+        return generatePath(cfg.api.botInstance.metrics, {
+          clusterId,
         });
       default:
         req satisfies never;
@@ -1855,6 +1893,8 @@ export interface UrlClusterEventsParams {
   limit?: number;
   include?: string;
   startKey?: string;
+  search?: string;
+  order?: string;
 }
 
 export interface UrlLauncherParams {

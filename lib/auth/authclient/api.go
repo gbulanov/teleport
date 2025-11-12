@@ -47,6 +47,7 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/accesslist"
 	"github.com/gravitational/teleport/api/types/discoveryconfig"
+	"github.com/gravitational/teleport/api/utils/clientutils"
 	"github.com/gravitational/teleport/lib/events"
 	"github.com/gravitational/teleport/lib/services"
 )
@@ -954,6 +955,12 @@ type ReadOktaAccessPoint interface {
 
 	// GetLocks lists the locks that target a given set of resources.
 	GetLocks(ctx context.Context, inForceOnly bool, targets ...types.LockTarget) ([]types.Lock, error)
+
+	// ListLocks returns a page of locks matching a filter.
+	ListLocks(ctx context.Context, limit int, startKey string, filter *types.LockFilter) ([]types.Lock, string, error)
+
+	// RangeLocks returns locks within the range [start, end) matching a filter.
+	RangeLocks(ctx context.Context, start, end string, filter *types.LockFilter) iter.Seq2[types.Lock, error]
 }
 
 // OktaAccessPoint is a read caching interface used by an Okta component.
@@ -1125,6 +1132,15 @@ type Cache interface {
 	// GetSnowflakeSession gets a Snowflake web session.
 	GetSnowflakeSession(context.Context, types.GetSnowflakeSessionRequest) (types.WebSession, error)
 
+	// GetSnowflakeSessions returns all Snowflake session resources.
+	GetSnowflakeSessions(ctx context.Context) ([]types.WebSession, error)
+
+	// ListSnowflakeSessions returns a page of Snowflake session resources.
+	ListSnowflakeSessions(ctx context.Context, limit int, startKey string) ([]types.WebSession, string, error)
+
+	// RangeSnowflakeSessions returns Snowflake session resources within the range [start, end).
+	RangeSnowflakeSessions(ctx context.Context, start, end string) iter.Seq2[types.WebSession, error]
+
 	// GetWebSession gets a web session for the given request
 	GetWebSession(context.Context, types.GetWebSessionRequest) (types.WebSession, error)
 
@@ -1203,6 +1219,18 @@ type Cache interface {
 	// services.LockWatcher that provides the necessary freshness guarantees.
 	GetLocks(ctx context.Context, inForceOnly bool, targets ...types.LockTarget) ([]types.Lock, error)
 
+	// ListLocks returns a page of locks.
+	// NOTE: This method is intentionally available only for the auth server
+	// cache, the other Teleport components should make use of
+	// services.LockWatcher that provides the necessary freshness guarantees.
+	ListLocks(ctx context.Context, limit int, startKey string, filter *types.LockFilter) ([]types.Lock, string, error)
+
+	// RangeLocks returns locks within the range [start, end).
+	// NOTE: This method is intentionally available only for the auth server
+	// cache, the other Teleport components should make use of
+	// services.LockWatcher that provides the necessary freshness guarantees.
+	RangeLocks(ctx context.Context, start, end string, filter *types.LockFilter) iter.Seq2[types.Lock, error]
+
 	// ListResources returns a paginated list of resources.
 	ListResources(ctx context.Context, req proto.ListResourcesRequest) (*types.ListResourcesResponse, error)
 	// ListWindowsDesktops returns a paginated list of windows desktops.
@@ -1218,6 +1246,10 @@ type Cache interface {
 
 	// GetInstallers gets all the installer resources.
 	GetInstallers(ctx context.Context) ([]types.Installer, error)
+	// ListInstallers returns a page of installer script resources.
+	ListInstallers(ctx context.Context, limit int, start string) ([]types.Installer, string, error)
+	// RangeInstallers returns installer script resources within the range [start, end).
+	RangeInstallers(ctx context.Context, start, end string) iter.Seq2[types.Installer, error]
 
 	// GetKubernetesClusters returns all kubernetes cluster resources.
 	GetKubernetesClusters(ctx context.Context) ([]types.KubeCluster, error)
@@ -1346,6 +1378,9 @@ type Cache interface {
 
 	// GetPluginStaticCredentialsByLabels will get a list of plugin static credentials resource by matching labels.
 	GetPluginStaticCredentialsByLabels(ctx context.Context, labels map[string]string) ([]types.PluginStaticCredentials, error)
+
+	// PluginGetter defines methods for fetching plugins.
+	services.PluginGetter
 
 	// GitServerGetter defines methods for fetching Git servers.
 	services.GitServerGetter
@@ -1712,7 +1747,23 @@ func (w *OktaWrapper) DeleteApplicationServer(ctx context.Context, namespace, ho
 
 // GetLocks fetches locks that target a given set of resources
 func (w *OktaWrapper) GetLocks(ctx context.Context, inForceOnly bool, targets ...types.LockTarget) ([]types.Lock, error) {
-	return w.NoCache.GetLocks(ctx, inForceOnly, targets...)
+	return clientutils.CollectWithFallback(
+		ctx,
+		func(ctx context.Context, limit int, start string) ([]types.Lock, string, error) {
+			filter := &types.LockFilter{
+				InForceOnly: inForceOnly,
+				Targets:     make([]*types.LockTarget, 0, len(targets)),
+			}
+			for _, tgt := range targets {
+				filter.Targets = append(filter.Targets, &tgt)
+			}
+			return w.NoCache.ListLocks(ctx, limit, start, filter)
+		},
+		func(ctx context.Context) ([]types.Lock, error) {
+			// TODO(okraport): DELETE IN v21
+			return w.NoCache.GetLocks(ctx, inForceOnly, targets...)
+		},
+	)
 }
 
 // UpsertLock creates and/or updates lock resources

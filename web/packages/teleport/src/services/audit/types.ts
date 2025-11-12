@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import { SortDir } from '../agents';
+
 // eventGroupTypes contains a map of events that were grouped under the same
 // event type but have different event codes. This is used to filter out duplicate
 // event types when listing event filters and provide modified description of event.
@@ -356,6 +358,7 @@ export const eventCodes = {
   SCIM_RESOURCE_GET_FAILURE: 'TSCIM004E',
   SCIM_RESOURCE_LIST: 'TSCIM005I',
   SCIM_RESOURCE_LIST_FAILURE: 'TSCIM005IE',
+  CLIENT_IP_RESTRICTIONS_UPDATE: 'CIR001I',
 } as const;
 
 /**
@@ -2099,6 +2102,13 @@ export type RawEvents = {
   [eventCodes.SCIM_RESOURCE_DELETE_FAILURE]: RawSCIMResourceEvent<
     typeof eventCodes.SCIM_RESOURCE_DELETE_FAILURE
   >;
+  [eventCodes.CLIENT_IP_RESTRICTIONS_UPDATE]: RawEvent<
+    typeof eventCodes.CLIENT_IP_RESTRICTIONS_UPDATE,
+    {
+      client_ip_restrictions: string[];
+      success: boolean;
+    }
+  >;
 };
 
 /**
@@ -2369,6 +2379,8 @@ export type EventQuery = {
   limit?: number;
   startKey?: string;
   filterBy?: string;
+  search?: string;
+  order: SortDir;
 };
 
 export type EventResponse = {

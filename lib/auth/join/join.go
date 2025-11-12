@@ -47,15 +47,15 @@ import (
 	"github.com/gravitational/teleport/lib/auth/join/oracle"
 	"github.com/gravitational/teleport/lib/auth/state"
 	"github.com/gravitational/teleport/lib/azuredevops"
-	"github.com/gravitational/teleport/lib/bitbucket"
 	"github.com/gravitational/teleport/lib/circleci"
 	proxyinsecureclient "github.com/gravitational/teleport/lib/client/proxy/insecure"
 	"github.com/gravitational/teleport/lib/cloud/imds/azure"
 	"github.com/gravitational/teleport/lib/cloud/imds/gcp"
 	"github.com/gravitational/teleport/lib/cryptosuites"
 	"github.com/gravitational/teleport/lib/defaults"
-	"github.com/gravitational/teleport/lib/githubactions"
 	"github.com/gravitational/teleport/lib/gitlab"
+	"github.com/gravitational/teleport/lib/join/bitbucket"
+	"github.com/gravitational/teleport/lib/join/githubactions"
 	"github.com/gravitational/teleport/lib/jwt"
 	kubetoken "github.com/gravitational/teleport/lib/kube/token"
 	"github.com/gravitational/teleport/lib/spacelift"
@@ -190,6 +190,15 @@ type RegisterParams struct {
 	GitlabParams GitlabParams
 	// BoundKeypairParams contains parameters specific to bound keypair joining.
 	BoundKeypairParams *BoundKeypairParams
+	// CreateSignedSTSIdentityRequestFunc overrides the function used to
+	// generate a signed AWs sts:GetCallerIdentity request.
+	CreateSignedSTSIdentityRequestFunc func(ctx context.Context, challenge string, opts ...iam.STSIdentityRequestOption) ([]byte, error)
+	// GetInstanceIdentityDocumentFunc overrides the function used to get an
+	// EC2 Instance Identity Document for the host.
+	GetInstanceIdentityDocumentFunc func(ctx context.Context) ([]byte, error)
+	// OracleIMDSClient overrides the HTTP client used to make requests to the
+	// OCI Instance Metadata Service.
+	OracleIMDSClient utils.HTTPDoClient
 }
 
 func (r *RegisterParams) CheckAndSetDefaults() error {
@@ -203,6 +212,22 @@ func (r *RegisterParams) CheckAndSetDefaults() error {
 
 	if err := r.verifyAuthOrProxyAddress(); err != nil {
 		return trace.BadParameter("no auth or proxy servers set")
+	}
+
+	if r.CreateSignedSTSIdentityRequestFunc == nil {
+		r.CreateSignedSTSIdentityRequestFunc = iam.CreateSignedSTSIdentityRequest
+	}
+
+	if r.GetInstanceIdentityDocumentFunc == nil {
+		r.GetInstanceIdentityDocumentFunc = awsutils.GetRawEC2IdentityDocument
+	}
+
+	if r.OracleIMDSClient == nil {
+		var err error
+		r.OracleIMDSClient, err = defaults.HTTPClient()
+		if err != nil {
+			return trace.Wrap(err)
+		}
 	}
 
 	return nil
@@ -261,6 +286,10 @@ type RegisterResult struct {
 // running on a different host than the auth server. This method requires a
 // provision token that will be used to authenticate as an identity that should
 // be allowed to join the cluster.
+//
+// Deprecated: this function is superceded by lib/join/joinclient.Join
+//
+// TODO(nklaassen): DELETE IN 20
 func Register(ctx context.Context, params RegisterParams) (result *RegisterResult, err error) {
 	ctx, span := tracer.Start(ctx, "Register")
 	defer func() { tracing.EndSpan(span, err) }()
@@ -285,14 +314,17 @@ func Register(ctx context.Context, params RegisterParams) (result *RegisterResul
 					`(e.g. /var/lib/teleport/host_uuid)`,
 				params.ID.HostUUID)
 		}
-		params.ec2IdentityDocument, err = awsutils.GetRawEC2IdentityDocument(ctx)
+		params.ec2IdentityDocument, err = params.GetInstanceIdentityDocumentFunc(ctx)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
 	case types.JoinMethodGitHub:
-		params.IDToken, err = githubactions.NewIDTokenSource().GetIDToken(ctx)
-		if err != nil {
-			return nil, trace.Wrap(err)
+		// Tests might specify an IDToken so don't overwrite it when present.
+		if params.IDToken == "" {
+			params.IDToken, err = githubactions.NewIDTokenSource().GetIDToken(ctx)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
 		}
 	case types.JoinMethodGitLab:
 		params.IDToken, err = gitlab.NewIDTokenSource(gitlab.IDTokenSourceConfig{
@@ -327,9 +359,11 @@ func Register(ctx context.Context, params RegisterParams) (result *RegisterResul
 			return nil, trace.Wrap(err)
 		}
 	case types.JoinMethodBitbucket:
-		params.IDToken, err = bitbucket.NewIDTokenSource(os.Getenv).GetIDToken()
-		if err != nil {
-			return nil, trace.Wrap(err)
+		if params.IDToken == "" {
+			params.IDToken, err = bitbucket.NewIDTokenSource(os.Getenv).GetIDToken()
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
 		}
 	case types.JoinMethodAzureDevops:
 		params.IDToken, err = azuredevops.NewIDTokenSource(os.Getenv).GetIDToken(ctx)
@@ -793,7 +827,7 @@ func registerUsingIAMMethod(
 	// Call RegisterUsingIAMMethod and pass a callback to respond to the challenge with a signed join request.
 	certs, err := joinServiceClient.RegisterUsingIAMMethod(ctx, func(challenge string) (*proto.RegisterUsingIAMMethodRequest, error) {
 		// create the signed sts:GetCallerIdentity request and include the challenge
-		signedRequest, err := iam.CreateSignedSTSIdentityRequest(ctx, challenge,
+		signedRequest, err := params.CreateSignedSTSIdentityRequestFunc(ctx, challenge,
 			iam.WithFIPSEndpoint(params.FIPS),
 		)
 		if err != nil {
